@@ -1,0 +1,7 @@
+1. Some parameters that might affect hair effect:
+   
+        damping
+        additional damping
+        sleeping threshold
+
+   All of these have default values upon construction. For other parameters check btRigidBodyConstructionInfo construction parameter list.
