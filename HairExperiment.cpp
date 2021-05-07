@@ -125,7 +125,7 @@ void HairExperiment::create_head() {
     btTransform head_trans;
     head_trans.setIdentity();
     head_trans.setOrigin(btVector3(0.0, 2.0, 0.0));
-    head_trans.setRotation(btQuaternion(btVector3(1.0, 0.0, 0.0), 0));
+    // head_trans.setRotation(btQuaternion(btVector3(1.0, 0.0, 0.0), 0));
         
     btSphereShape* head_shape = new btSphereShape(head_radii);
     head = createRigidBody(head_mass, head_trans, head_shape);
@@ -136,17 +136,36 @@ void HairExperiment::create_head() {
     // TODO: maybe a hinge should look good?
     for (int s = 0; s < strand_num; ++s) {
         btRigidBody& strand_base = *hair_bones[bones_per_strand * s];
-        btVector3 strand_orient = face_orient.rotate(btVector3(0., 1., 0.),
-                                                     (90. + strand_orient_interval * s) * SIMD_PI / 180.);
-        btVector3 strand_base_pos_head_frame = strand_orient * (head_radii + bone_interval);
-        btVector3 strand_base_pos_strand_frame = btVector3(0, 0, -bone_length / 2 - bone_interval);
-            
-        btTypedConstraint* strand_base_joint = new btPoint2PointConstraint(*head,
-                                                                           strand_base,
-                                                                           strand_base_pos_head_frame,
-                                                                           strand_base_pos_strand_frame);
+        btScalar strand_rad = (90. + strand_orient_interval * s) * SIMD_PI / 180.;
+        btVector3 strand_orient = face_orient.rotate(btVector3(0., 1., 0.), strand_rad);
+        btVector3 base_pos_in_head = strand_orient * (head_radii + bone_interval);
+        
+        btTransform head_pivot;
+        head_pivot.setIdentity();
+        head_pivot.setOrigin(base_pos_in_head);
+        head_pivot.getBasis().setEulerZYX(0.0, strand_rad, 0.0);
+        
+        btVector3 base_pos_in_strand = btVector3(0, 0, -bone_length / 2 - bone_interval);
+        btTransform strand_pivot;
+        strand_pivot.setIdentity();
+        strand_pivot.setOrigin(base_pos_in_strand);
+
+        btGeneric6DofSpring2Constraint* head_strand_joint =
+            new btGeneric6DofSpring2Constraint(*head,
+                                               strand_base,
+                                               head_pivot,
+                                               strand_pivot);
+        
+        head_strand_joint->setLimit(0, 0, 0);
+        head_strand_joint->setLimit(1, 0, 0);
+        head_strand_joint->setLimit(2, 0, 0);
+        
+        head_strand_joint->setLimit(3, 0, 0);
+        head_strand_joint->setLimit(4, 0, 0);
+        head_strand_joint->setLimit(5, 1, -1);
+        
         // 'true' to disable collision between adjacent bones
-        m_dynamicsWorld->addConstraint(strand_base_joint, true);
+        m_dynamicsWorld->addConstraint(head_strand_joint, true);
     }
 
     // add dof6 cosnraints to head
@@ -183,7 +202,7 @@ void HairExperiment::create_head() {
     head_constraint->setStiffness(2, 100);
     head_constraint->setDamping(2, 10);
 
-    // lock all rotations
+    // Lock all rotations
     head_constraint->setLimit(3, 0, 0);
     head_constraint->setLimit(4, 0, 0);
     head_constraint->setLimit(5, 0, 0);
