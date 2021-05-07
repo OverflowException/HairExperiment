@@ -78,14 +78,7 @@ void HairExperiment::create_hair_strands() {
     // Create Dynamic Objects
     // TODO: differentiate bone mass
     btScalar bone_mass(1.f);
-        
-    ///////////////
-    // TODO: 1. make some hair strands.
-    //       2. make hair base kinematic
-    //       3. add some damping: rigidBody::setDamping
-    //       4. Cone twist constraint?
-    //       5. Sleeping threshold?
-        
+
     // Or should we try another entirely different option: Featherstone MultiBody? 
     for (int s = 0; s < strand_num; ++s) {
         for (int b = 0; b < bones_per_strand; ++b) {
@@ -108,13 +101,45 @@ void HairExperiment::create_hair_strands() {
             btRigidBody& bone_b = *hair_bones[bones_per_strand * s + b];
             const btVector3& bone_a_com = bone_a.getCenterOfMassPosition();
             const btVector3& bone_b_com = bone_b.getCenterOfMassPosition();
+            
             btVector3 joint_pos = (bone_a_com + bone_b_com) / 2;
-            btTypedConstraint* joint = new btPoint2PointConstraint(bone_a,
-                                                                   bone_b,
-                                                                   joint_pos - bone_a_com,
-                                                                   joint_pos - bone_b_com);
+            btTransform pivot_in_a;
+            pivot_in_a.setIdentity();
+            pivot_in_a.setOrigin(joint_pos - bone_a_com);
+
+            btTransform pivot_in_b;
+            pivot_in_b.setIdentity();
+            pivot_in_b.setOrigin(joint_pos - bone_b_com);
+
+            btGeneric6DofSpring2Constraint* hair_joint =
+                new btGeneric6DofSpring2Constraint(bone_a,
+                                                   bone_b,
+                                                   pivot_in_a,
+                                                   pivot_in_b);
+
+            // lock all translations
+            hair_joint->setLimit(0, 0, 0);
+            hair_joint->setLimit(1, 0, 0);
+            hair_joint->setLimit(2, 0, 0);
+
+            // TODO: differentiate stiffness
+            hair_joint->setLimit(3, 1, -1);
+            hair_joint->enableSpring(3, true);
+            hair_joint->setStiffness(3, 1.2);
+            hair_joint->setDamping(3, 10);    // This constraint damping is not effective as rigid body damping
+            
+            hair_joint->setLimit(4, 1, -1);
+            hair_joint->enableSpring(4, true);
+            hair_joint->setStiffness(4, 1.2);
+            hair_joint->setDamping(4, 10);
+            
+            hair_joint->setLimit(5, 1, -1);
+            hair_joint->enableSpring(5, true);
+            hair_joint->setStiffness(5, 1.2);
+            hair_joint->setDamping(5, 10);
+            
             // 'true' to disable collision between adjacent bones
-            m_dynamicsWorld->addConstraint(joint, true);
+            m_dynamicsWorld->addConstraint(hair_joint, true);
         }
     }
 }
@@ -162,7 +187,7 @@ void HairExperiment::create_head() {
         
         head_strand_joint->setLimit(3, 0, 0);
         head_strand_joint->setLimit(4, 0, 0);
-        head_strand_joint->setLimit(5, 1, -1);
+        head_strand_joint->setLimit(5, 0, 0);
         
         // 'true' to disable collision between adjacent bones
         m_dynamicsWorld->addConstraint(head_strand_joint, true);
