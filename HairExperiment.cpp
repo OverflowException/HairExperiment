@@ -128,15 +128,12 @@ void HairExperiment::create_hair_strands() {
             hair_joint->setStiffness(3, 1.2);
             hair_joint->setDamping(3, 10);    // This constraint damping is not effective as rigid body damping
             
-            hair_joint->setLimit(4, -SIMD_PI / 2, SIMD_PI / 4);
+            hair_joint->setLimit(4, 1, -1);
             hair_joint->enableSpring(4, true);
             hair_joint->setStiffness(4, 1.2);
             hair_joint->setDamping(4, 10);
             
             hair_joint->setLimit(5, 0, 0);
-            hair_joint->enableSpring(5, true);
-            hair_joint->setStiffness(5, 1.2);
-            hair_joint->setDamping(5, 10);
             
             // 'true' to disable collision between adjacent bones
             m_dynamicsWorld->addConstraint(hair_joint, true);
