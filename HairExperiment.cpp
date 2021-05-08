@@ -30,14 +30,14 @@ inline btScalar deg2rad(btScalar deg) {
 const     btVector3  up_direction           = btVector3(0.0, 1.0, 0.0);
 
 constexpr int        strand_num             = 5;
-constexpr int        bones_per_strand       = 3;
-constexpr float      bone_radii             = 0.05;
-constexpr float      bone_length            = 0.3;
+constexpr int        bones_per_strand       = 4;
+constexpr float      bone_radii             = 0.04;
+constexpr float      bone_length            = 0.2;
 constexpr float      bone_interval          = 0.05;
 
 constexpr btScalar   head_radii             = 0.3;
 // z axis of head frame
-const     btVector3  face_orient            = btVector3(1.0, 0.0, 1.0).normalize();
+const     btVector3  face_orient            = btVector3(-1.0, 0.0, 0.0).normalize();
 const     btScalar   head_tilt              = deg2rad(0.0);
 // y axis of head frame
 const     btVector3  head_v_axis            = find_head_axis(face_orient, up_direction, head_tilt);
@@ -47,8 +47,9 @@ const     btMatrix3x3 head_basis            = btMatrix3x3(head_h_axis.x(), head_
                                                           head_h_axis.y(), head_v_axis.y(), face_orient.y(),
                                                           head_h_axis.z(), head_v_axis.z(), face_orient.z());
 
-constexpr btScalar   strand_longi_interval = 180. / (strand_num - 1);
-const     btScalar   strand_lat            = deg2rad(30.0);
+const     btScalar   strands_longi_span    = deg2rad(90);
+const     btScalar   strand_longi_interval = strands_longi_span / (strand_num - 1);
+const     btScalar   strand_lat            = deg2rad(60.0);
 
 struct HairExperiment : public CommonRigidBodyBase
 {
@@ -107,7 +108,7 @@ void HairExperiment::create_hair_strands() {
 
     // Create Dynamic Objects
     // TODO: differentiate bone mass
-    btScalar bone_mass(1.f);
+    btScalar bone_mass(.3f);
 
     // Or should we try another entirely different option: Featherstone MultiBody? 
     for (int s = 0; s < strand_num; ++s) {
@@ -163,7 +164,7 @@ void HairExperiment::create_hair_strands() {
             hair_joint->setStiffness(4, 1.2);
             hair_joint->setDamping(4, 10);
             
-            hair_joint->setLimit(5, 0, 0);
+            hair_joint->setLimit(5, 1, -1);
             
             // 'true' to disable collision between adjacent bones
             m_dynamicsWorld->addConstraint(hair_joint, true);
@@ -188,18 +189,21 @@ void HairExperiment::create_head() {
     // TODO: maybe a hinge should look good?
     for (int s = 0; s < strand_num; ++s) {
         btRigidBody& strand_base = *hair_bones[bones_per_strand * s];
-        btScalar strand_longi_in_head = deg2rad(90. + strand_longi_interval * s);
+        btScalar strand_longi_in_head = SIMD_PI  - strands_longi_span / 2 + strand_longi_interval * s;
         btVector3 strand_orient_in_head = btVector3(0.0, 0.0, 1.0)
             .rotate(btVector3(0.0, 1.0, 0.0), strand_longi_in_head)
             .rotate(btVector3(1.0, 0.0, 0.0), strand_lat);
         
         btVector3 pivot_pos_in_head = strand_orient_in_head * (head_radii + bone_interval);
+        btScalar equator_sin = strand_orient_in_head.y();
+        btScalar equator_cos = sqrt(1 - equator_sin * equator_sin);
         btTransform pivot_in_head;
         pivot_in_head.setIdentity();
         pivot_in_head.setOrigin(pivot_pos_in_head);
-        pivot_in_head.getBasis() = btMatrix3x3(btQuaternion(btVector3(0.0, 1.0, 0.0), strand_longi_in_head)) *
-                                   btMatrix3x3(btQuaternion(btVector3(1.0, 0.0, 0.0), strand_lat)) * 
-                                   pivot_in_head.getBasis();
+        pivot_in_head.setBasis(btMatrix3x3(btQuaternion(btVector3(0.0, 1.0, 0.0), strand_longi_in_head)) *
+                               btMatrix3x3(1,   0.0,         0.0,
+                                           0.0, equator_cos, equator_sin,
+                                           0.0, -equator_sin,equator_cos));
         
         btVector3 pivot_pos_in_strand = btVector3(0, 0, -bone_length / 2 - bone_interval);
         btTransform pivot_in_strand;
