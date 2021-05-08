@@ -8,6 +8,27 @@
 
 #include "../CommonInterfaces/CommonRigidBodyBase.h"
 
+btVector3 find_head_axis(const btVector3& face, const btVector3& up,  const btScalar& tilt) {
+    if (face == up) {
+        return btVector3(1.0, 0.0, 0.0);
+    }
+    
+    btScalar factor = face.dot(up) / face.dot(face);
+    btVector3 no_tilt_axis =  (up - factor * face).normalize();
+
+    // add tilt
+    btVector3 tilt_axis =  no_tilt_axis.rotate(face, tilt);
+
+    // point up
+    return tilt_axis.dot(up) > 0 ? tilt_axis : -tilt_axis;
+}
+
+inline btScalar deg2rad(btScalar deg) {
+    return deg * SIMD_PI / 180.0;
+}
+
+const     btVector3  up_direction           = btVector3(0.0, 1.0, 0.0);
+
 constexpr int        strand_num             = 5;
 constexpr int        bones_per_strand       = 3;
 constexpr float      bone_radii             = 0.05;
@@ -15,10 +36,19 @@ constexpr float      bone_length            = 0.3;
 constexpr float      bone_interval          = 0.05;
 
 constexpr btScalar   head_radii             = 0.3;
-const     btVector3  face_orient            = btVector3(0.0, 0.0, 1.0).normalize();
-constexpr btScalar   strand_orient_interval = 180. / (strand_num - 1);
+// z axis of head frame
+const     btVector3  face_orient            = btVector3(1.0, 0.0, 1.0).normalize();
+const     btScalar   head_tilt              = deg2rad(0.0);
+// y axis of head frame
+const     btVector3  head_v_axis            = find_head_axis(face_orient, up_direction, head_tilt);
+// x axis of head frame
+const     btVector3  head_h_axis            = head_v_axis.cross(face_orient);
+const     btMatrix3x3 head_basis            = btMatrix3x3(head_h_axis.x(), head_v_axis.x(), face_orient.x(),
+                                                          head_h_axis.y(), head_v_axis.y(), face_orient.y(),
+                                                          head_h_axis.z(), head_v_axis.z(), face_orient.z());
 
-constexpr int        lut_size               = 64;
+constexpr btScalar   strand_longi_interval = 180. / (strand_num - 1);
+const     btScalar   strand_lat            = deg2rad(30.0);
 
 struct HairExperiment : public CommonRigidBodyBase
 {
@@ -147,36 +177,40 @@ void HairExperiment::create_head() {
     btTransform head_trans;
     head_trans.setIdentity();
     head_trans.setOrigin(btVector3(0.0, 2.0, 0.0));
-    // head_trans.setRotation(btQuaternion(btVector3(1.0, 0.0, 0.0), 0));
+    head_trans.setBasis(head_basis);
         
     btSphereShape* head_shape = new btSphereShape(head_radii);
     head = createRigidBody(head_mass, head_trans, head_shape);
     // TODO: How does activation/deactivation work
     head->forceActivationState(DISABLE_DEACTIVATION);
-        
+
     // add constraints to head and strand
     // TODO: maybe a hinge should look good?
     for (int s = 0; s < strand_num; ++s) {
         btRigidBody& strand_base = *hair_bones[bones_per_strand * s];
-        btScalar strand_rad = (90. + strand_orient_interval * s) * SIMD_PI / 180.;
-        btVector3 strand_orient = face_orient.rotate(btVector3(0., 1., 0.), strand_rad);
-        btVector3 base_pos_in_head = strand_orient * (head_radii + bone_interval);
+        btScalar strand_longi_in_head = deg2rad(90. + strand_longi_interval * s);
+        btVector3 strand_orient_in_head = btVector3(0.0, 0.0, 1.0)
+            .rotate(btVector3(0.0, 1.0, 0.0), strand_longi_in_head)
+            .rotate(btVector3(1.0, 0.0, 0.0), strand_lat);
         
-        btTransform head_pivot;
-        head_pivot.setIdentity();
-        head_pivot.setOrigin(base_pos_in_head);
-        head_pivot.getBasis().setEulerZYX(0.0, strand_rad, 0.0);
+        btVector3 pivot_pos_in_head = strand_orient_in_head * (head_radii + bone_interval);
+        btTransform pivot_in_head;
+        pivot_in_head.setIdentity();
+        pivot_in_head.setOrigin(pivot_pos_in_head);
+        pivot_in_head.getBasis() = btMatrix3x3(btQuaternion(btVector3(0.0, 1.0, 0.0), strand_longi_in_head)) *
+                                   btMatrix3x3(btQuaternion(btVector3(1.0, 0.0, 0.0), strand_lat)) * 
+                                   pivot_in_head.getBasis();
         
-        btVector3 base_pos_in_strand = btVector3(0, 0, -bone_length / 2 - bone_interval);
-        btTransform strand_pivot;
-        strand_pivot.setIdentity();
-        strand_pivot.setOrigin(base_pos_in_strand);
+        btVector3 pivot_pos_in_strand = btVector3(0, 0, -bone_length / 2 - bone_interval);
+        btTransform pivot_in_strand;
+        pivot_in_strand.setIdentity();
+        pivot_in_strand.setOrigin(pivot_pos_in_strand);
 
         btGeneric6DofSpring2Constraint* head_strand_joint =
             new btGeneric6DofSpring2Constraint(*head,
                                                strand_base,
-                                               head_pivot,
-                                               strand_pivot);
+                                               pivot_in_head,
+                                               pivot_in_strand);
         
         head_strand_joint->setLimit(0, 0, 0);
         head_strand_joint->setLimit(1, 0, 0);
@@ -197,6 +231,7 @@ void HairExperiment::create_head() {
     btTransform pivot_head;
     pivot_head.setIdentity();
     pivot_head.setOrigin(btVector3(0.0, 0.0, 0.0));
+    pivot_head.setBasis(head_basis.inverse());
         
     btGeneric6DofSpring2Constraint* head_constraint = new btGeneric6DofSpring2Constraint(*ground,
                                                                                          *head,
