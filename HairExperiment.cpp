@@ -37,7 +37,7 @@ constexpr float      bone_interval          = 0.05;
 
 constexpr btScalar   head_radii             = 0.3;
 // z axis of head frame
-const     btVector3  face_orient            = btVector3(1.0, 0.0, 1.0).normalize();
+const     btVector3  face_orient            = btVector3(0.0, 0.0, -1.0).normalize();
 const     btScalar   head_tilt              = deg2rad(0.0);
 // y axis of head frame
 const     btVector3  head_v_axis            = find_head_axis(face_orient, up_direction, head_tilt);
@@ -48,7 +48,7 @@ const     btMatrix3x3 head_basis            = btMatrix3x3(head_h_axis.x(), head_
                                                           head_h_axis.z(), head_v_axis.z(), face_orient.z());
 
 constexpr btScalar   strand_longi_interval = 180. / (strand_num - 1);
-const     btScalar   strand_lat            = deg2rad(30.0);
+const     btScalar   strand_lat            = deg2rad(60.0);
 
 struct HairExperiment : public CommonRigidBodyBase
 {
@@ -194,12 +194,15 @@ void HairExperiment::create_head() {
             .rotate(btVector3(1.0, 0.0, 0.0), strand_lat);
         
         btVector3 pivot_pos_in_head = strand_orient_in_head * (head_radii + bone_interval);
+        btScalar equator_sin = strand_orient_in_head.y();
+        btScalar equator_cos = sqrt(1 - equator_sin * equator_sin);
         btTransform pivot_in_head;
         pivot_in_head.setIdentity();
         pivot_in_head.setOrigin(pivot_pos_in_head);
-        pivot_in_head.getBasis() = btMatrix3x3(btQuaternion(btVector3(0.0, 1.0, 0.0), strand_longi_in_head)) *
-                                   btMatrix3x3(btQuaternion(btVector3(1.0, 0.0, 0.0), strand_lat)) * 
-                                   pivot_in_head.getBasis();
+        pivot_in_head.setBasis(btMatrix3x3(btQuaternion(btVector3(0.0, 1.0, 0.0), strand_longi_in_head)) *
+                               btMatrix3x3(1,   0.0,         0.0,
+                                           0.0, equator_cos, equator_sin,
+                                           0.0, -equator_sin,equator_cos));
         
         btVector3 pivot_pos_in_strand = btVector3(0, 0, -bone_length / 2 - bone_interval);
         btTransform pivot_in_strand;
