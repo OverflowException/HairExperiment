@@ -1,7 +1,9 @@
-1. Some parameters that might affect hair effect:
-   
-        damping
-        additional damping
-        sleeping threshold
+1. Try construct hair strands from a valid initial position, not flat on the ground,
+   and consruct constraint frames in reference to individualt hair bone's initial states
 
-   All of these have default values upon construction. For other parameters check btRigidBodyConstructionInfo construction parameter list.
+2. Is collision between hair strands necessary?
+   If not, set collision mask and ground to prevent inter-strands collisions
+
+3. Why do strands jiggle so much, an how to sync strands movement as much as possible?
+
+4. Base bone of each strands may not be necessary. Attach stands tangent to scalp.
