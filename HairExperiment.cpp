@@ -8,6 +8,8 @@
 
 #include "../CommonInterfaces/CommonRigidBodyBase.h"
 
+#include "tiny_gltf/tiny_gltf.h"
+
 btVector3 find_head_axis(const btVector3& face, const btVector3& up,  const btScalar& tilt) {
     if (face == up) {
         return btVector3(1.0, 0.0, 0.0);
@@ -51,6 +53,8 @@ const     btScalar   strands_longi_span    = deg2rad(90);
 const     btScalar   strand_longi_interval = strands_longi_span / (strand_num - 1);
 const     btScalar   strand_lat            = deg2rad(60.0);
 
+const     std::string gltf_filename        = "./model/Girl.gltf";
+
 struct HairExperiment : public CommonRigidBodyBase
 {
     // All rigid body pointers in this class will get its ownership transfered to
@@ -76,6 +80,7 @@ struct HairExperiment : public CommonRigidBodyBase
 
     void create_ground();
     void create_hair_strands();
+    void create_hair_strands_from_gltf(const std::string& filename);
     void create_head();
 };
 
@@ -92,6 +97,30 @@ void HairExperiment::create_ground() {
     
     btScalar ground_mass(0.);
     ground = createRigidBody(ground_mass, ground_transform, ground_shape, btVector4(0, 0, 1, 1));
+}
+
+inline void is_joint(tinygltf::Model* model, int node_id) {
+    return model->nodes[node_id].mesh == -1;
+}
+
+void HairExperiment::create_hair_strands_from_gltf(const std::string& filename) {
+    tinygltf::TinyGLTF gltf_ctx;
+    tinygltf::Model* model = new tinygltf::Model();
+    std::string err;
+    std::string warn;
+    
+    if (!gltf_ctx.LoadASCIIFromFile(model, &err, &warn, filename)) {
+        std::cout << "Load gltf fail. err = " << err << std::endl;
+        return;
+    }
+
+    assert(model->scenes.size() >= 1);
+    auto& scene = model->scenes[0];
+    
+    assert(scene.nodes.size() >= 1);
+    auto& root_id = scene.nodes[0];
+
+    
 }
 
 void HairExperiment::create_hair_strands() {        
@@ -283,11 +312,13 @@ void HairExperiment::initPhysics()
 		m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawWireframe + btIDebugDraw::DBG_DrawContactPoints);
     }
 
-    create_ground();
+    // create_ground();
 
-    create_hair_strands();
+    // create_hair_strands();
 
-    create_head();
+    create_hair_strands_from_gltf(gltf_filename);
+
+    // create_head();
 
 	m_guiHelper->autogenerateGraphicsObjects(m_dynamicsWorld);
 }
