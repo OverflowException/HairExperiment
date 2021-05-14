@@ -1,4 +1,5 @@
 #include <iostream>
+#include <queue>
 
 #include "HairExperiment.h"
 
@@ -9,6 +10,7 @@
 #include "../CommonInterfaces/CommonRigidBodyBase.h"
 
 #include "tiny_gltf/tiny_gltf.h"
+#include "skeleton.h"
 
 btVector3 find_head_axis(const btVector3& face, const btVector3& up,  const btScalar& tilt) {
     if (face == up) {
@@ -64,6 +66,7 @@ struct HairExperiment : public CommonRigidBodyBase
     btRigidBody*                         head;
     btRigidBody*                         ground;
     btAlignedObjectArray<btRigidBody*>   hair_bones;
+    Skeleton                             init_skel;
     
 	HairExperiment(struct GUIHelperInterface* helper) : CommonRigidBodyBase(helper) {}
     
@@ -79,13 +82,105 @@ struct HairExperiment : public CommonRigidBodyBase
 	}
 
     void create_ground();
+    
     void create_hair_strands();
-    void create_hair_strands_from_gltf(const std::string& filename);
+    
+    void create_hair_strands_from_skeleton();
+    
     void create_head();
+
+    void get_skeleton_from_gltf(const std::string& filename, const std::string& root_name = "");
 };
 
 // pre-tick callback for kinematic bodies
 void kinematicPreTickCallback(btDynamicsWorld* world, btScalar deltaTime);
+
+inline bool is_joint(std::shared_ptr<tinygltf::Model> model, int node_id) {
+    return model->nodes[node_id].mesh == -1;
+}
+
+inline btTransform get_local_btTransform(const tinygltf::Node& node) {
+    assert(node.translation.size() == 3);
+    assert(node.rotation.size() == 4);
+    // TODO: get local btTransform from gltf node
+    btVector3 trans(btScalar(node.translation[0]),
+                    btScalar(node.translation[1]),
+                    btScalar(node.translation[2]));
+    btQuaternion rot;
+}
+
+void HairExperiment::get_skeleton_from_gltf(const std::string& filename, const std::string& root_name) {
+    tinygltf::TinyGLTF gltf_ctx;
+    std::shared_ptr<tinygltf::Model> model(new tinygltf::Model());
+    std::string err;
+    std::string warn;
+    
+    if (!gltf_ctx.LoadASCIIFromFile(model.get(), &err, &warn, filename)) {
+        std::cout << "Load gltf fail. err = " << err << std::endl;
+        return;
+    }
+
+    int root_id = 0;
+    if (root_name == "") {
+        // Use scene root
+        assert(model->scenes.size() >= -1);
+        auto& scene = model->scenes[0];
+    
+        assert(scene.nodes.size() >= 1);
+        root_id = scene.nodes[0];
+    } else {
+        // Use custom root
+        auto iter = std::find_if(model->nodes.begin(),
+                                 model->nodes.end(),
+                                 [&](const tinygltf::Node& n) {
+                                     return n.name == root_name;
+                                 });
+        root_id = iter - model->nodes.begin();
+    }
+    
+    init_skel[root_id] = Joint({
+        root_id,
+        -1,
+        std::vector<int>(model->nodes[root_id].children)});
+    
+    // parent node id : child node id
+    std::queue<std::pair<int, int>> node_queue;
+    for (int id : model->nodes[root_id].children) {
+        if (is_joint(model, id)) {
+            node_queue.push(std::make_pair(root_id, id));
+        }
+    }
+
+    while (!node_queue.empty()) {
+        auto p = node_queue.front();
+        int p_id = p.first; // parent id
+        int c_id = p.second; // child id
+        if (!is_joint(model, c_id)) {
+            node_queue.pop();
+            continue;
+        }
+        
+        init_skel[c_id] = {
+            c_id,
+            p_id,
+            std::vector<int>(model->nodes[c_id].children)};
+        for (int id : model->nodes[c_id].children) {
+            node_queue.push(std::make_pair(c_id, id));
+        }
+        node_queue.pop();
+    }
+
+    // for (auto j : init_skel) {
+    //     std::cout << j.first << " : ";
+    //     std::cout << j.second.id << " " << j.second.parent << " ";
+    //     for (auto ele : j.second.children) {
+    //         std::cout << ele << ",";
+    //     }
+    //     std::cout << std::endl;
+    // }
+    
+    return;
+}
 
 void HairExperiment::create_ground() {
     btBoxShape* ground_shape = createBoxShape(btVector3(50., 50., 50.));
@@ -99,28 +194,7 @@ void HairExperiment::create_ground() {
     ground = createRigidBody(ground_mass, ground_transform, ground_shape, btVector4(0, 0, 1, 1));
 }
 
-inline void is_joint(tinygltf::Model* model, int node_id) {
-    return model->nodes[node_id].mesh == -1;
-}
-
-void HairExperiment::create_hair_strands_from_gltf(const std::string& filename) {
-    tinygltf::TinyGLTF gltf_ctx;
-    tinygltf::Model* model = new tinygltf::Model();
-    std::string err;
-    std::string warn;
-    
-    if (!gltf_ctx.LoadASCIIFromFile(model, &err, &warn, filename)) {
-        std::cout << "Load gltf fail. err = " << err << std::endl;
-        return;
-    }
-
-    assert(model->scenes.size() >= 1);
-    auto& scene = model->scenes[0];
-    
-    assert(scene.nodes.size() >= 1);
-    auto& root_id = scene.nodes[0];
-
-    
+void HairExperiment::create_hair_strands_from_skeleton() {
 }
 
 void HairExperiment::create_hair_strands() {        
@@ -316,7 +390,9 @@ void HairExperiment::initPhysics()
 
     // create_hair_strands();
 
-    create_hair_strands_from_gltf(gltf_filename);
+    get_skeleton_from_gltf(gltf_filename);
+    
+    create_hair_strands_from_skeleton();
 
     // create_head();
 
