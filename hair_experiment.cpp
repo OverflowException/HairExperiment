@@ -10,27 +10,9 @@
 #include "../CommonInterfaces/CommonRigidBodyBase.h"
 
 #include "gltf_parser.h"
+#include "math_util.h"
 #include "print_helper.h"
 #include "skeleton.h"
-
-btVector3 find_head_axis(const btVector3& face, const btVector3& up,  const btScalar& tilt) {
-    if (face == up) {
-        return btVector3(1.0, 0.0, 0.0);
-    }
-    
-    btScalar factor = face.dot(up) / face.dot(face);
-    btVector3 no_tilt_axis =  (up - factor * face).normalize();
-
-    // add tilt
-    btVector3 tilt_axis =  no_tilt_axis.rotate(face, tilt);
-
-    // point up
-    return tilt_axis.dot(up) > 0 ? tilt_axis : -tilt_axis;
-}
-
-inline btScalar deg2rad(btScalar deg) {
-    return deg * SIMD_PI / 180.0;
-}
 
 const     btVector3  up_direction           = btVector3(0.0, 1.0, 0.0);
 
@@ -43,20 +25,26 @@ constexpr float      bone_interval          = 0.001;
 constexpr btScalar   head_radii             = 0.3;
 // z axis of head frame
 const     btVector3  face_orient            = btVector3(-1.0, 0.0, 0.0).normalize();
-const     btScalar   head_tilt              = deg2rad(0.0);
+const     btScalar   head_tilt              = MathUtil::deg2rad(0.0);
 // y axis of head frame
-const     btVector3  head_v_axis            = find_head_axis(face_orient, up_direction, head_tilt);
+const     btVector3  head_v_axis            = MathUtil::find_head_axis(face_orient, up_direction, head_tilt);
 // x axis of head frame
 const     btVector3  head_h_axis            = head_v_axis.cross(face_orient);
 const     btMatrix3x3 head_basis            = btMatrix3x3(head_h_axis.x(), head_v_axis.x(), face_orient.x(),
                                                           head_h_axis.y(), head_v_axis.y(), face_orient.y(),
                                                           head_h_axis.z(), head_v_axis.z(), face_orient.z());
 
-const     btScalar   strands_longi_span    = deg2rad(90);
+const     btScalar   strands_longi_span    = MathUtil::deg2rad(90);
 const     btScalar   strand_longi_interval = strands_longi_span / (strand_num - 1);
-const     btScalar   strand_lat            = deg2rad(60.0);
+const     btScalar   strand_lat            = MathUtil::deg2rad(60.0);
 
 const     std::string gltf_filename        = "./model/Girl.gltf";
+const     RigidBodyBinding hair_binding    = {{12,   // "head"
+                                              {28,  // "hairA1"
+                                               18,  // "hairB1"
+                                               23,  // "hairC1"
+                                               33   // "joint1"
+                                              }}};
 
 struct HairExperiment : public CommonRigidBodyBase
 {
@@ -88,9 +76,11 @@ struct HairExperiment : public CommonRigidBodyBase
     
     void create_head();
 
-    void create_hair_strands_from_skeleton();
-
-    btRigidBody* create_bone_from_joints(const Joint& ja, const Joint& jb);
+    void create_rigid_skeleton();
+    
+    void create_partial_dynamic_skeleton();
+    
+    btCompoundShape* add_bone_as_child_shape(const Joint& j_a, const Joint& j_b, btCompoundShape* comp_shape);
 
     btRigidBody* create_joint_as_sphere(const Joint& j);
 };
@@ -110,7 +100,7 @@ void HairExperiment::create_ground() {
     ground = createRigidBody(ground_mass, ground_transform, ground_shape, btVector4(0, 0, 1, 1));
 }
 
-btRigidBody* HairExperiment::create_bone_from_joints(const Joint& j_a, const Joint& j_b) {    
+btCompoundShape* HairExperiment::add_bone_as_child_shape(const Joint& j_a, const Joint& j_b, btCompoundShape* comp_shape) {
     btVector3 a2b = j_b.t_model - j_a.t_model;
     
     btScalar len_a2b = a2b.length();
@@ -121,23 +111,19 @@ btRigidBody* HairExperiment::create_bone_from_joints(const Joint& j_a, const Joi
     // center of mass
     btVector3 com = j_b.t_model.lerp(j_a.t_model, 0.5);
     
-    // compute rotation
-    btVector3 rot_axis = a2b.cross(btVector3(0.0, 1.0, 0.0));
-    btScalar rot_angle = -a2b.angle(btVector3(0.0, 1.0, 0.0));
-    
     btTransform trans;
     trans.setIdentity();
     trans.setOrigin(com);
-    trans.setRotation(btQuaternion(rot_axis, rot_angle));
+    trans.setRotation(MathUtil::rot_between(btVector3(0.0, 0.0, 1.0), a2b));
 
     // create an y-axis cylinder
-    btCylinderShape* shape = new btCylinderShape(btVector3(bone_radii,
-                                                           (len_a2b - bone_interval) / 2,
-                                                           0.0));    
-    btScalar mass(0.0);
-    btRigidBody* bone = createRigidBody(mass, trans, shape);
+    btCylinderShapeZ* shape = new btCylinderShapeZ(btVector3(bone_radii,
+                                                             0.0,
+                                                             (len_a2b - bone_interval) / 2));
 
-    return bone;
+    comp_shape->addChildShape(trans, shape);
+
+    return comp_shape;
 }
 
 btRigidBody* HairExperiment::create_joint_as_sphere(const Joint& j) {
@@ -153,13 +139,15 @@ btRigidBody* HairExperiment::create_joint_as_sphere(const Joint& j) {
     return joint;
 }
 
-void HairExperiment::create_hair_strands_from_skeleton() {
-    init_skel = std::move(GLTFParser::gen_skeleton_from_gltf(gltf_filename, "Head"));
+void HairExperiment::create_rigid_skeleton() {
+    init_skel = std::move(GLTFParser::gen_skeleton_from_gltf(gltf_filename));
 
     for (auto& j : init_skel) {
         std::cout << j.first << " = " << j.second << std::endl;
     }
 
+    btCompoundShape* skel_shape = new btCompoundShape();
+    m_collisionShapes.push_back(skel_shape);
     
     for (auto p : init_skel) {
         int id = p.first;
@@ -169,9 +157,30 @@ void HairExperiment::create_hair_strands_from_skeleton() {
         }
         Joint& j_p = init_skel[j_c.parent];
 
-        create_bone_from_joints(j_p, j_c);
-        // create_joint_as_sphere(j_c);
-    }    
+        add_bone_as_child_shape(j_p, j_c, skel_shape);
+    }
+
+    btScalar skel_mass(10.0);
+    btTransform skel_trans;
+    skel_trans.setIdentity();
+
+    // TODO: center of mass looks weird
+    btRigidBody* skel = createRigidBody(skel_mass, skel_trans, skel_shape);
+    skel->setDamping(0.7, 0.5);
+}
+
+/*
+const     RigidBodyBinding hair_binding    = {{12,   // "head"
+                                              {28,  // "hairA1"
+                                               18,  // "hairB1"
+                                               23,  // "hairC1"
+                                               33   // "joint1"
+                                              }}};
+
+ */
+
+void HairExperiment::create_partial_dynamic_skeleton() {
+    
 }
 
 void HairExperiment::create_hair_strands() {        
@@ -363,13 +372,13 @@ void HairExperiment::initPhysics()
 		m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawWireframe + btIDebugDraw::DBG_DrawContactPoints);
     }
 
-    // create_ground();
+    create_ground();
 
     // create_hair_strands();
-    
-    create_hair_strands_from_skeleton();
 
     // create_head();
+    
+    create_rigid_skeleton();
 
 	m_guiHelper->autogenerateGraphicsObjects(m_dynamicsWorld);
 }

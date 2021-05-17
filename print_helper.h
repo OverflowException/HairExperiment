@@ -32,7 +32,8 @@ std::ostream& operator<<(std::ostream& os, const btTransform& trans) {
 }
 
 std::ostream& operator<<(std::ostream& os, const Joint& j) {
-    os << "\tid = " << j.id << "\n"
+    os << "\tname = " << j.name << "\n"
+       << "\tid = " << j.id << "\n"
        << "\tparent = " << j.parent << "\n"
        << "\tchildren = " << j.children << "\n"
        << "\tt_local = " << j.t_local << "\n"

@@ -80,7 +80,8 @@ Joint GLTFParser::joint_from_gltf_node(const tinygltf::Model& model,
                                        int                    parent) {
     const tinygltf::Node& node = model.nodes.at(id);
     Joint j;
-        
+
+    j.name = node.name;
     j.id = id;
     j.parent = parent;
     j.children.assign(node.children.begin(), node.children.end());

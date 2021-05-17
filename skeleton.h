@@ -2,11 +2,14 @@
 
 #include <iostream>
 #include <map>
+#include <set>
+#include <string>
 #include <vector>
 
 #include "LinearMath/btTransform.h"
 
 struct Joint {
+    std::string      name;
     int              id;
     int              parent;
     std::vector<int> children;
@@ -21,3 +24,6 @@ struct Joint {
 };
 
 typedef std::map<int, Joint> Skeleton;
+
+// kinematic parent - dynamic children
+typedef std::map<int, std::set<int>> RigidBodyBinding;
