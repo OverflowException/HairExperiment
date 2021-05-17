@@ -1464,6 +1464,7 @@ class TinyGLTF {
 
 #endif  // TINY_GLTF_H_
 
+#if defined(TINYGLTF_IMPLEMENTATION) || defined(__INTELLISENSE__)
 #include <algorithm>
 //#include <cassert>
 #ifndef TINYGLTF_NO_FS
@@ -5831,13 +5832,13 @@ bool TinyGLTF::LoadFromString(Model *model, std::string *err, std::string *warn,
         {
           json_const_iterator it;
           if (FindMember(o, "extensions", it)) {
-            scene.extensions_json_string = JsonToString(GetValue(it));
+            model->extensions_json_string = JsonToString(GetValue(it));
           }
         }
         {
           json_const_iterator it;
           if (FindMember(o, "extras", it)) {
-            scene.extras_json_string = JsonToString(GetValue(it));
+            model->extras_json_string = JsonToString(GetValue(it));
           }
         }
       }
@@ -7756,3 +7757,4 @@ bool TinyGLTF::WriteGltfSceneToFile(Model *model, const std::string &filename,
 #pragma clang diagnostic pop
 #endif
 
+#endif  // TINYGLTF_IMPLEMENTATION

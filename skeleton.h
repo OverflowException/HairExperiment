@@ -1,6 +1,8 @@
 #pragma once
 
+#include <iostream>
 #include <map>
+#include <vector>
 
 #include "LinearMath/btTransform.h"
 
@@ -8,7 +10,14 @@ struct Joint {
     int              id;
     int              parent;
     std::vector<int> children;
-    btTransform      trans_ref_root;
+    
+    btVector3        t_local;
+    btQuaternion     r_local;
+    btTransform      trans_local;
+
+    btVector3        t_model;
+    btQuaternion     r_model;
+    btTransform      trans_model;
 };
 
 typedef std::map<int, Joint> Skeleton;

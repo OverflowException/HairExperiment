@@ -1,4 +1,4 @@
-#include "HairExperiment.h"
+#include "hair_experiment.h"
 
 #include "../CommonInterfaces/CommonExampleInterface.h"
 #include "../CommonInterfaces/CommonGUIHelperInterface.h"

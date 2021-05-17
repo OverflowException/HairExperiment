@@ -19,7 +19,8 @@ INCLUDE_DIRECTORIES(
 
 
 SET(HairExperiment_SRCS
-	HairExperiment.cpp
+  hair_experiment.cpp
+  gltf_parser.cpp
         ${BULLET_PHYSICS_SOURCE_DIR}/build3/bullet.rc
 	../StandaloneMain/main_opengl_single_example.cpp
         ../ExampleBrowser/OpenGLGuiHelper.cpp
