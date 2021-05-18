@@ -185,6 +185,7 @@ btGeneric6DofSpring2Constraint* HairExperiment::create_spring_constraint(btRigid
                                                                          btRigidBody& rb_b,
                                                                          const Joint& pivot) {
     const btTransform& trans_a = rb_a.getCenterOfMassTransform();
+    const btTransform& trans_a_inv = trans_a.inverse();
     const btTransform& trans_b = rb_b.getCenterOfMassTransform();
     
     btVector3 t_a_pivot = pivot.t_model - trans_a.getOrigin();
