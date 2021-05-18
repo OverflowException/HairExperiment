@@ -24,6 +24,3 @@ struct Joint {
 };
 
 typedef std::map<int, Joint> Skeleton;
-
-// kinematic parent - dynamic children
-typedef std::map<int, std::set<int>> RigidBodyBinding;

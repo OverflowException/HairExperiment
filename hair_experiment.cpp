@@ -39,12 +39,12 @@ const     btScalar   strand_longi_interval = strands_longi_span / (strand_num - 
 const     btScalar   strand_lat            = MathUtil::deg2rad(60.0);
 
 const     std::string gltf_filename        = "./model/Girl.gltf";
-const     RigidBodyBinding hair_binding    = {{12,   // "head"
-                                              {28,  // "hairA1"
-                                               18,  // "hairB1"
-                                               23,  // "hairC1"
-                                               33   // "joint1"
-                                              }}};
+const     std::set<int> dynamic_joints     = {28, 29, 30, 31, // "hairA1"
+                                              18, 19, 20, 21, // "hairB1"
+                                              23, 24, 25, 26, // "hairC1"
+                                              33, 34, 35, 36, // "joint1"
+                                              };
+
 
 struct HairExperiment : public CommonRigidBodyBase
 {
@@ -76,12 +76,25 @@ struct HairExperiment : public CommonRigidBodyBase
     
     void create_head();
 
-    void create_rigid_skeleton();
+    void create_skeleton();
     
-    void create_partial_dynamic_skeleton();
-    
-    btCompoundShape* add_bone_as_child_shape(const Joint& j_a, const Joint& j_b, btCompoundShape* comp_shape);
+    btCompoundShape* add_bone_as_child_shape(const Joint& j_a,
+                                             const Joint& j_b,
+                                             btCompoundShape* comp_shape);
 
+    btRigidBody* create_bone_from_joints(const Joint& j_a,
+                                         const Joint& j_b,
+                                         btScalar mass);
+
+    btPoint2PointConstraint* create_p2p_constraint(btRigidBody& rb_a,
+                                              btRigidBody& rb_b,
+                                              const Joint& pivot);
+
+
+    btGeneric6DofSpring2Constraint* create_spring_constraint(btRigidBody& rb_a,
+                                                             btRigidBody& rb_b,
+                                                             const Joint& pivot);
+    
     btRigidBody* create_joint_as_sphere(const Joint& j);
 };
 
@@ -126,6 +139,72 @@ btCompoundShape* HairExperiment::add_bone_as_child_shape(const Joint& j_a, const
     return comp_shape;
 }
 
+btRigidBody* HairExperiment::create_bone_from_joints(const Joint& j_a,
+                                                     const Joint& j_b,
+                                                     btScalar mass) {
+    btVector3 a2b = j_b.t_model - j_a.t_model;
+    
+    btScalar len_a2b = a2b.length();
+    if (len_a2b == 0.0) {
+        return nullptr;
+    }
+    
+    // center of mass
+    btVector3 com = j_b.t_model.lerp(j_a.t_model, 0.5);
+    
+    btTransform trans;
+    trans.setIdentity();
+    trans.setOrigin(com);
+    trans.setRotation(MathUtil::rot_between(btVector3(0.0, 0.0, 1.0), a2b));
+
+    // create an y-axis cylinder
+    btCylinderShapeZ* shape = new btCylinderShapeZ(btVector3(bone_radii,
+                                                             0.0,
+                                                             (len_a2b - bone_interval) / 2));
+    m_collisionShapes.push_back(shape);
+
+    btRigidBody* bone = createRigidBody(mass, trans, shape);
+    return bone;
+}
+
+btPoint2PointConstraint* HairExperiment::create_p2p_constraint(btRigidBody& rb_a,
+                                                          btRigidBody& rb_b,
+                                                          const Joint& pivot) {
+    btVector3 pivot_a = rb_a.getCenterOfMassTransform().inverse() * pivot.t_model;
+    btVector3 pivot_b = rb_b.getCenterOfMassTransform().inverse() * pivot.t_model;
+
+    return new btPoint2PointConstraint(rb_a, rb_b, pivot_a, pivot_b);
+}
+
+
+btGeneric6DofSpring2Constraint* HairExperiment::create_spring_constraint(btRigidBody& rb_a,
+                                                                         btRigidBody& rb_b,
+                                                                         const Joint& pivot) {
+    const btTransform& trans_a = rb_a.getCenterOfMassTransform();
+    const btTransform& trans_b = rb_b.getCenterOfMassTransform();
+
+    
+    btVector3 center_line = pivot.t_model - trans_a.getOrigin();
+    btVector3 z_axis_a = trans_a * btVector3(0.0, 0.0, 1.0);
+    btQuaternion r_a = MathUtil::rot_between(z_axis_a, center_line);
+    btVector3 t_a =  pivot.t_model - trans_a.getOrigin();
+    btTransform pivot_frame_a = btTransform(r_a, t_a);
+
+    btTransform pivot_frame_b = trans_a * trans_b.inverse() * trans_a;
+
+
+    btGeneric6DofSpring2Constraint* constraint =
+        new btGeneric6DofSpring2Constraint(rb_a, rb_b, trans_a, trans_b);
+    
+    // lock all translations
+    constraint->setLimit(0, 0, 0);
+    constraint->setLimit(1, 0, 0);
+    constraint->setLimit(2, 0, 0);
+
+    return constraint;
+}
+
+
 btRigidBody* HairExperiment::create_joint_as_sphere(const Joint& j) {
     btScalar mass(0.0);
     btTransform trans;
@@ -139,7 +218,7 @@ btRigidBody* HairExperiment::create_joint_as_sphere(const Joint& j) {
     return joint;
 }
 
-void HairExperiment::create_rigid_skeleton() {
+void HairExperiment::create_skeleton() {
     init_skel = std::move(GLTFParser::gen_skeleton_from_gltf(gltf_filename));
 
     for (auto& j : init_skel) {
@@ -148,6 +227,8 @@ void HairExperiment::create_rigid_skeleton() {
 
     btCompoundShape* skel_shape = new btCompoundShape();
     m_collisionShapes.push_back(skel_shape);
+
+    std::map<int, btRigidBody*> dynamic_rb_map;
     
     for (auto p : init_skel) {
         int id = p.first;
@@ -157,30 +238,40 @@ void HairExperiment::create_rigid_skeleton() {
         }
         Joint& j_p = init_skel[j_c.parent];
 
-        add_bone_as_child_shape(j_p, j_c, skel_shape);
+        auto iter = dynamic_joints.find(j_p.id);
+        if (iter != dynamic_joints.end()) {
+            // found a dynamic root
+            dynamic_rb_map[j_p.id] = create_bone_from_joints(j_p, j_c, 0.5);
+            dynamic_rb_map[j_p.id]->setDamping(0.7, 1.0);
+        } else {                    
+            add_bone_as_child_shape(j_p, j_c, skel_shape);
+        }
     }
 
     btScalar skel_mass(10.0);
     btTransform skel_trans;
     skel_trans.setIdentity();
-
+    
     // TODO: center of mass looks weird
     btRigidBody* skel = createRigidBody(skel_mass, skel_trans, skel_shape);
     skel->setDamping(0.7, 0.5);
-}
 
-/*
-const     RigidBodyBinding hair_binding    = {{12,   // "head"
-                                              {28,  // "hairA1"
-                                               18,  // "hairB1"
-                                               23,  // "hairC1"
-                                               33   // "joint1"
-                                              }}};
-
- */
-
-void HairExperiment::create_partial_dynamic_skeleton() {
-    
+    // Attach dynamics bones
+    for (int id : dynamic_joints) {
+        Joint& j_c = init_skel[id];
+        auto iter = dynamic_rb_map.find(j_c.parent);
+        if (iter != dynamic_rb_map.end()) {
+            m_dynamicsWorld->addConstraint(create_spring_constraint(*iter->second,
+                                                             *dynamic_rb_map[id],
+                                                             j_c),
+                                           true);
+        } else {
+            m_dynamicsWorld->addConstraint(create_spring_constraint(*skel,
+                                                             *dynamic_rb_map[id],
+                                                             j_c),
+                                           true);
+        }
+    }
 }
 
 void HairExperiment::create_hair_strands() {        
@@ -378,7 +469,7 @@ void HairExperiment::initPhysics()
 
     // create_head();
     
-    create_rigid_skeleton();
+    create_skeleton();
 
 	m_guiHelper->autogenerateGraphicsObjects(m_dynamicsWorld);
 }
