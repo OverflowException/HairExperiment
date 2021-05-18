@@ -43,7 +43,13 @@ const     std::set<int> dynamic_joints     = {28, 29, 30, 31, // "hairA1"
                                               18, 19, 20, 21, // "hairB1"
                                               23, 24, 25, 26, // "hairC1"
                                               33, 34, 35, 36, // "joint1"
-                                              };
+                                              
+                                              100, 101, 102,
+                                              96, 97, 98,
+                                              104, 105, 106,
+                                              116, 117, 118,
+                                              108, 109, 110,
+                                              112, 113, 114};
 
 
 struct HairExperiment : public CommonRigidBodyBase
@@ -89,8 +95,7 @@ struct HairExperiment : public CommonRigidBodyBase
     btPoint2PointConstraint* create_p2p_constraint(btRigidBody& rb_a,
                                               btRigidBody& rb_b,
                                               const Joint& pivot);
-
-
+    
     btGeneric6DofSpring2Constraint* create_spring_constraint(btRigidBody& rb_a,
                                                              btRigidBody& rb_b,
                                                              const Joint& pivot);
@@ -176,31 +181,45 @@ btPoint2PointConstraint* HairExperiment::create_p2p_constraint(btRigidBody& rb_a
     return new btPoint2PointConstraint(rb_a, rb_b, pivot_a, pivot_b);
 }
 
-
 btGeneric6DofSpring2Constraint* HairExperiment::create_spring_constraint(btRigidBody& rb_a,
                                                                          btRigidBody& rb_b,
                                                                          const Joint& pivot) {
     const btTransform& trans_a = rb_a.getCenterOfMassTransform();
     const btTransform& trans_b = rb_b.getCenterOfMassTransform();
-
     
-    btVector3 center_line = pivot.t_model - trans_a.getOrigin();
-    btVector3 z_axis_a = trans_a * btVector3(0.0, 0.0, 1.0);
-    btQuaternion r_a = MathUtil::rot_between(z_axis_a, center_line);
-    btVector3 t_a =  pivot.t_model - trans_a.getOrigin();
-    btTransform pivot_frame_a = btTransform(r_a, t_a);
+    btVector3 t_a_pivot = pivot.t_model - trans_a.getOrigin();
+    
+    btVector3 z_axis_a = btTransform(trans_a.getRotation(), btVector3(0.0, 0.0, 0.0)) * btVector3(0.0, 0.0, 1.0);
+    btQuaternion r_a_pivot = MathUtil::rot_between(z_axis_a, t_a_pivot);
+    
+    btTransform pivot_trans = btTransform(r_a_pivot, t_a_pivot) * trans_a;
 
-    btTransform pivot_frame_b = trans_a * trans_b.inverse() * trans_a;
-
-
+    // above computations are in model space, below computations in rigidbody local space
+    
+    btTransform pivot_frame_a = trans_a.inverse() * pivot_trans;
+    btTransform pivot_frame_b = trans_b.inverse() * pivot_trans;
+    
     btGeneric6DofSpring2Constraint* constraint =
-        new btGeneric6DofSpring2Constraint(rb_a, rb_b, trans_a, trans_b);
+        new btGeneric6DofSpring2Constraint(rb_a, rb_b, pivot_frame_a, pivot_frame_b);
     
     // lock all translations
-    constraint->setLimit(0, 0, 0);
-    constraint->setLimit(1, 0, 0);
-    constraint->setLimit(2, 0, 0);
+    constraint->setLinearLowerLimit(btVector3(0.0, 0.0, 0.0));
+    constraint->setLinearUpperLimit(btVector3(0.0, 0.0, 0.0));
 
+    // lock xy rotations TODO: why?
+    constraint->setAngularLowerLimit(btVector3(0.0, 0.0, 1.0));
+    constraint->setAngularUpperLimit(btVector3(0.0, 0.0, -1.0));
+    
+    constraint->enableSpring(3, false);
+    constraint->setStiffness(3, 100.0);
+    constraint->setDamping(3, 10.0);
+
+    constraint->enableSpring(4, false);
+    constraint->setStiffness(4, 100.0);
+    constraint->setDamping(4, 10.0);
+
+    constraint->enableSpring(5, false);
+    
     return constraint;
 }
 
@@ -241,7 +260,7 @@ void HairExperiment::create_skeleton() {
         auto iter = dynamic_joints.find(j_p.id);
         if (iter != dynamic_joints.end()) {
             // found a dynamic root
-            dynamic_rb_map[j_p.id] = create_bone_from_joints(j_p, j_c, 0.5);
+            dynamic_rb_map[j_p.id] = create_bone_from_joints(j_p, j_c, 0.1);
             dynamic_rb_map[j_p.id]->setDamping(0.7, 1.0);
         } else {                    
             add_bone_as_child_shape(j_p, j_c, skel_shape);
@@ -456,7 +475,7 @@ void HairExperiment::initPhysics()
 	m_guiHelper->setUpAxis(1);
 
 	createEmptyDynamicsWorld();
-	//m_dynamicsWorld->setGravity(btVector3(0,0,0));
+    
 	m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
 
 	if (m_dynamicsWorld->getDebugDrawer()) {
@@ -464,7 +483,7 @@ void HairExperiment::initPhysics()
     }
 
     create_ground();
-
+    
     // create_hair_strands();
 
     // create_head();
